@@ -19,15 +19,105 @@
 // This contract require release 0.4.0 or above
 // Note that this is experimental functionality
 function main()
+  // TBD
 endfunction
 
+// This adapts SafeRemotePurchase.vy at https://vyper.readthedocs.io/en/v0.1.0-beta.10/vyper-by-example.html#safe-remote-purchases to Etch.
+// Rundown of the transaction:
+// 1. Seller posts item for sale and posts safety deposit of double the item value.
+//    Balance is 2*value.
+//    (1.1. Seller can reclaim deposit and close the sale as long as nothing was purchased.)
+// 2. Buyer purchases item (value) plus posts an additional safety deposit (Item value).
+//    Balance is 4*value.
+// 3. Seller ships item.
+// 4. Buyer confirms receiving the item. Buyer's deposit (value) is returned.
+//    Seller's deposit (2*value) + items value is returned. Balance is 0.
+@payable  // NOT POSSIBLE YET
 @init
-function init(sender: Address, value: UInt256)
-  var value_state = State< UInt256 >("value"); // The seller initializes the contract by
-        									   // posting a safety deposit of 2*value of the item up for sale.
-  value_state.set(value);
-  var owner = State< Address >("owner")
-  owner.set(sender)
-  var lock_state = State< Bool >("lock")
-  lock_state.set(False);
+function init(sender: Address)
+  // Check even value.
+  // The seller initializes the contract by posting a safety deposit of 2*value of the item up for sale.
+  if(msg.value % 2 != 0)  // NOT POSSIBLE YET
+  	panic("This value is not evenly divisible.");
+  endif
+
+  var value_state = State< Address >("value");
+  value_state.set(msg.value);  // NOT POSSIBLE YET
+
+  var seller_state = State< Address >("seller");
+  seller_state.set(sender);
+
+  var lock_state = State< Bool >("locked");
+  lock_state.set(false);
+endfunction
+
+@action
+function abort(sender: Address)
+  // Check if the contract is still refundable (unlocked)
+  var lock_state = State< Bool >("locked");
+  var locked = lock_state.get();
+  if(locked)
+  	panic("This contract is already locked.");
+  endif
+
+  // Only the seller can refund his deposit before any buyer purchases the item.
+  var seller_state = State< Address >("seller");
+  var seller = seller_state.get();
+  if(sender != seller)
+  	panic("You are not the seller.");
+  endif
+
+  // Refunds the seller and deletes the contract.
+  selfdestruct(seller);  // NOT POSSIBLE YET
+endfunction
+
+@payable  // NOT POSSIBLE YET
+@action
+function purchase(sender: Address)
+  // Check if the contract is still open for sale (unlocked)
+  var lock_state = State< Bool >("locked");
+  var locked = lock_state.get();
+  if(locked)
+  	panic("This contract is already locked.");
+  endif
+
+  // Check the deposit is the correct value
+  var value_state = State< Address >("value");
+  var value = value_state.get();
+  if(msg.value != value * 2)  // NOT POSSIBLE YET
+  	panic("This value does not match.");
+  endif
+
+  var buyer = State< Address >("buyer");
+  buyer.set(sender);
+
+  lock_state.set(true);
+endfunction
+
+
+@action
+function received(sender: Address)
+  // 1. Conditions
+  // Check if  the item is already purchased and pending confirmation from the buyer?
+  var buyer_state = State< Address >("buyer");
+  var buyer = buyer_state.get();
+  if(sender != buyer)
+    panic("The sender is not the buyer.");
+  endif
+  var ended_state = State< Bool >("ended");
+  var ended = ended_state.get(false);
+  if(!ended)
+    panic("The contract has ended.");
+  endif
+
+  // 2. Effects
+  ended_state.set(true);
+
+  // 3. Interaction
+  var value_state = State< Address >("value");
+  var value = value_state.get();
+  // Return the buyer's deposit (=value) to the buyer.
+  send(buyer, value);  // NOT POSSIBLE YET
+  // Return the seller's deposit (=2*value) and the purchase price (=value) to the seller.
+  selfdestruct(seller);  // NOT POSSIBLE YET
 endfunction

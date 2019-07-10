@@ -22,6 +22,8 @@ function main()
   // TBD
 endfunction
 
+// This adapts AtomicSwapERC20ToERC20.sol at https://github.com/jchittoda/eth-atomic-swap to Etch.
+
 // 1. Alice provides an allowance to the AtomicSwapERC20ToERC20 contract, using her ERC20 contract to do so.
 // 2. Alice calls open using a unique swap_id that has been negotiated between both traders. The allowance will be checked and used to transfer Alice's ERC20 tokens to the AtomicSwapERC20ToERC20 contract.
 @init
@@ -179,7 +181,7 @@ function expire(swap_id: String) : Bool
   var open_value = swap_open_value.get(swap_id);
   var open_trader = swap_open_trader.get(swap_id);
   var open_contract_address = swap_open_contract_address.get(swap_id);
-  open_ERC20_contract = ERC20(open_contract_address);
+  open_ERC20_contract = ERC20(open_contract_address);  // NOT POSSIBLE YET
   if(!open_ERC20_contract.transfer(Address(this), open_trader, open_value))  // NOT POSSIBLE YET
   	return false;
   endif
