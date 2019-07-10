@@ -1,0 +1,188 @@
+//------------------------------------------------------------------------------
+//
+//   Copyright 2019 Fetch.AI Limited
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//       http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+//------------------------------------------------------------------------------
+
+// This contract require release 0.4.0 or above
+// Note that this is experimental functionality
+function main()
+  // TBD
+endfunction
+
+// 1. Alice provides an allowance to the AtomicSwapERC20ToERC20 contract, using her ERC20 contract to do so.
+// 2. Alice calls open using a unique swap_id that has been negotiated between both traders. The allowance will be checked and used to transfer Alice's ERC20 tokens to the AtomicSwapERC20ToERC20 contract.
+@init
+function open(sender: Address, swap_id: String, open_value: UInt256, open_contract_address: Address, close_value: UInt256, close_trader: Address, close_contract_address: Address) : Bool
+  // Check the sender signed the transaction.
+  if(!sender.signedTx())
+    return false;
+  endif
+
+  // Helper variable
+  var open_trader = sender;
+
+  // Check the swap id does not exist yet.
+  var swap_states = ShardedState< String >("swap_states");
+  var state = swap_states.get(swap_id, "");
+  if(state != "")
+    return false;
+  endif
+  
+  // Check the AtomicSwapERC20ToERC20 (this) contract has a high enough allowance on the open_trader's open_ERC20_contract.
+  open_ERC20_contract = ERC20(open_contract_address);  // NOT POSSIBLE YET
+  if(open_value > open_ERC20_contract.allowance(open_trader, Address(this)))  // NOT POSSIBLE YET
+    return false;
+  endif
+
+  // Transfer value from the open_trader's open_ERC20_contract to the AtomicSwapERC20ToERC20 (this) contract.
+  if(!open_ERC20_contract.transferFrom(Address(this), open_trader, Address(this), open_value))  // NOT POSSIBLE YET
+    return false;
+  endif
+
+  // Store the details of the swap.
+  var swap_open_value     		  = ShardedState< UInt256  >("swap.open_value");
+  var swap_open_trader  		  = ShardedState< Address  >("swap.open_trader");
+  var swap_open_contract_address  = ShardedState< Address  >("swap.open_contract_address");
+  var swap_close_value  		  = ShardedState< UInt256  >("swap.close_value");
+  var swap_close_trader 		  = ShardedState< Address  >("swap.close_trader");  
+  var swap_close_contract_address = ShardedState< Address  >("swap.close_contract_address");
+
+  swap_open_value.set(swap_id, open_value);
+  swap_open_trader.set(swap_id, open_trader);
+  swap_open_contract_address.set(swap_id, open_contract_address);
+  swap_close_value.set(swap_id, close_value);
+  swap_close_trader.set(swap_id, close_trader);
+  swap_close_contract_address.set(swap_id, close_contract_address);
+
+  // Update the state of the swap.
+  swap_states.set(swap_id, "OPEN");
+
+  return true;
+endfunction
+
+// 3. Bob calls check to verify the details of the trade. If he does not agree then he does not need to do anything.
+@query
+function check(swap_id: String) : StructuredData 
+
+  var swap_open_value     		  = ShardedState< UInt256  >("swap.open_value");
+  var swap_open_trader  		  = ShardedState< Address  >("swap.open_trader");
+  var swap_open_contract_address  = ShardedState< Address  >("swap.open_contract_address");
+  var swap_close_value  		  = ShardedState< UInt256  >("swap.close_value");
+  var swap_close_trader 		  = ShardedState< Address  >("swap.close_trader");  
+  var swap_close_contract_address = ShardedState< Address  >("swap.close_contract_address");
+
+  var open_value : UInt256 = swap_open_value.get(swap_id);
+  var open_trader : Address = swap_open_trader.get(swap_id);
+  var open_contract_address : Address = swap_open_contract_address.get(swap_id);
+  var close_value : UInt256 = swap_close_value.get(swap_id);
+  var close_trader : Address = swap_close_trader.get(swap_id);
+  var close_contract_address : Address = swap_close_contract_address.get(swap_id);
+
+  var data = StructuredData();
+
+  data.set("open_value", open_value);
+  data.set("open_trader", open_trader);
+  data.set("open_contract_address", open_contract_address);
+  data.set("close_value", close_value);
+  data.set("close_trader", close_trader);
+  data.set("close_contract_address", close_contract_address);
+
+  return data;
+endfunction
+
+
+// 4. Bob provides an allowance to the AtomicSwapERC20ToERC20 contract, using his ERC20 contract to do so.
+// 5. Bob calls close, which will check the allowance and use it to transfer his ERC20 tokens to Alice. At the same time, it will transfer Alice's ERC20 tokens to Bob. Alice can no longer expire the swap.
+function close(sender: Address, swap_id: String) : Bool
+
+  // Check the sender signed the transaction.
+  if(!sender.signedTx())
+    return false;
+  endif
+
+  // Check the swap id exists and the swap state is open.
+  var swap_states = ShardedState< String >("swap_states");
+  var state = swap_states.get(swap_id, "");
+  if(state != "OPEN")
+  	return false;
+  endif  
+
+  // Check the sender is the close trader.
+  var swap_close_trader = ShardedState< Address  >("swap.close_trader");
+  var close_trader = swap_close_trader.get(swap_id);
+  if(sender != close_trader)
+    return false;
+  endif
+
+  // Close the swap.
+  swap_states.set(swap_id, "CLOSED");
+
+  // Check the AtomicSwapERC20ToERC20 (this) contract has a high enough allowance on the close_trader's close_ERC20_contract.
+  var swap_close_value = ShardedState< Address  >("swap.close_value");
+  var swap_close_contract_address = ShardedState< Address  >("swap.close_contract_address");
+  var close_value = swap_close_value.get(swap_id);
+  var close_contract_address = swap_close_contract_address.get(swap_id);
+  close_ERC20_contract = ERC20(close_contract_address);  // NOT POSSIBLE YET
+  if(close_value > close_ERC20_contract.allowance(close_trader, Address(this)))  // NOT POSSIBLE YET
+  	return false;
+  endif
+
+  // Transfer closing value from the closing trader's close_ERC20_contract to the open trader.
+  var swap_open_trader = ShardedState< Address  >("swap.open_trader");
+  var open_trader = swap_open_trader.get(swap_id);
+  if(!close_ERC20_contract.transferFrom(Address(this), close_trader, open_trader, close_value))  // NOT POSSIBLE YET
+  	return false;
+  endif
+
+  // Transfer the opening value from this contract to the close trader.
+  var swap_open_contract_address = ShardedState< Address  >("swap.open_contract_address");
+  var open_contract_address = swap_open_contract_address.get(swap_id);
+  open_ERC20_contract = ERC20(open_contract_address);  // NOT POSSIBLE YET
+  if(!open_ERC20_contract.transfer(Address(this), close_trader, open_value))  // NOT POSSIBLE YET
+    return false;
+  endif
+
+  return true;
+endfunction
+
+// At any point, Alice can call expire and get a refund of her ERC20 tokens. Doing this cancels the swap.
+@action
+function expire(swap_id: String) : Bool
+
+  // Check the swap id exists and the swap state is open.
+  var swap_states = ShardedState< String >("swap_states");
+  var state = swap_states.get(swap_id, "");
+  if(state != "OPEN")
+  	return false;
+  endif  
+
+  // Expire the swap.
+  swap_states.set(swap_id, "EXPIRED");
+
+  // Transfer opening value from this contract back to the opening trader.
+  var swap_open_value     		  = ShardedState< UInt256  >("swap.open_value");
+  var swap_open_trader  		  = ShardedState< Address  >("swap.open_trader");
+  var swap_open_contract_address  = ShardedState< Address  >("swap.open_contract_address");
+  var open_value = swap_open_value.get(swap_id);
+  var open_trader = swap_open_trader.get(swap_id);
+  var open_contract_address = swap_open_contract_address.get(swap_id);
+  open_ERC20_contract = ERC20(open_contract_address);
+  if(!open_ERC20_contract.transfer(Address(this), open_trader, open_value))  // NOT POSSIBLE YET
+  	return false;
+  endif
+
+  return true;
+endfunction
