@@ -20,3 +20,15 @@ How can a contract self-destruct at the end of its lifetime?
 
 How can a contract send some of its funds?
 - e.g.: send(some_address, some_amount)
+
+https://crushcrypto.com/ethereum-erc-token-standards/
+
+http://erc721.org
+
+http://escrowmyether.com/#readme
+
+https://docs.openzeppelin.org/v2.3.0/api/token/erc777
+
+https://github.com/OpenZeppelin/openzeppelin-solidity/tree/master/contracts/token/ERC20
+
+https://docs.fetch.ai/etch-language

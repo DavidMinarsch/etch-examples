@@ -1,0 +1,337 @@
+//------------------------------------------------------------------------------
+//
+//   Copyright 2019 Fetch.AI Limited
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//       http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+//------------------------------------------------------------------------------
+
+// This a direct translation from: https://github.com/austintgriffith/token-subscription/blob/master/Subscription/Subscription.sol
+// All credit is theirs.
+// See also: https://media.consensys.net/subscription-services-on-the-blockchain-are-here-a6b6a097dd4
+
+// This contract require release 0.4.0 or above
+// Note that this is experimental functionality
+function main()
+  // TBD
+endfunction
+
+@payable
+// contract will need to hold funds to pay gas
+
+//Ownable//
+/**
+ * @dev Initializes the contract setting the owner address as the initial owner.
+ */
+@init
+function init(owner: Address)
+  var owner_state = State< Address >("owner"); 
+  owner_state.set(owner);
+endfunction
+
+/**
+ * @dev Returns the address of the current owner.
+ */
+@query
+function owner() : Address
+  var owner_state = State< Address >("owner"); 
+  return owner_state.get();
+endfunction
+
+/**
+ * @dev Returns true if the caller address is the current owner.
+ */
+ @query
+function isOwner(caller: Address) : Bool
+  var owner_state = State< Address >("owner");
+  var owner : Address = owner_state.get();
+  return owner == caller;
+endfunction
+
+/**
+ * @dev Leaves the contract without owner. It will not be possible to call
+ * `onlyOwner` functions anymore. Can only be called by the current owner.
+ *
+ * > Note: Renouncing ownership will leave the contract without an owner,
+ * thereby removing any functionality that is only available to the owner.
+ */
+ @action
+function renounceOwnership(caller: Address)
+  var owner_state = State< Address >("owner");
+  var owner : Address = owner_state.get();
+  if(caller != owner)
+    panic("Caller is not the owner.");
+  endif
+  owner_state.set(address(0));  // NOT POSSIBLE YET
+endfunction
+
+/**
+ * @dev Transfers ownership of the contract to a new account (`new_owner`).
+ * Can only be called by the current owner.
+ */
+ @action
+function transferOwnership(caller: Address, new_owner: Address)
+  var owner_state = State< Address >("owner");
+  var owner : Address = owner_state.get();
+  if(caller != owner)
+    panic("Caller is not the owner.");
+  endif
+  if(new_owner == address(0))  // NOT POSSIBLE YET
+    panic("New owner is the zero address.");
+  endif
+  owner_state.set(new_owner);
+endfunction
+//endOwnable//
+
+// only the owner of this contract can sign the subscriptionHash to whitelist
+// a specific subscription to start rewarding the relayers for paying the
+// gas of the transactions out of the balance of this contract
+@action
+function signSubscriptionHash(subscription_hash: String) : Bool
+  var owner_state = State< Address >("owner");
+  var owner : Address = owner_state.get();
+  if(caller != owner)
+    panic("Caller is not the owner.");
+  endif
+
+  // for some cases of delegated execution, this contract will pay a third party
+  // to execute the transfer. If this happens, the owner of this contract must
+  // sign the subscriptionHash
+  var publisher_signed_state = ShardedState< Bool >("publisher_signed");
+  publisher_signed_state.set(subscription_hash, true);
+  return true;
+endfunction
+
+// this is used by external smart contracts to verify on-chain that a
+// particular subscription is "paid" and "active"
+// there must be a small grace period added to allow the publisher
+// or desktop miner to execute
+@query
+function isSubscriptionActive(subscription_hash: String, grace_period_seconds: UInt256) : Bool
+  // similar to a nonce that avoids replay attacks this allows a single execution
+  // every x seconds for a given subscription
+  // subscriptionHash  => next valid block number
+  var next_valid_timestamp_state = ShardedState< UInt256 >("next_valid_timestamp");
+  var next_valid_timestamp = next_valid_timestamp_state.get(subscription_hash, UInt256(0u64));
+
+  // TODO: Polyfilling due to missing UInt256 functionality
+  var u_next_valid_timestamp = toUInt64(next_valid_timestamp);  
+  u_next_valid_timestamp -= toUInt64(grace_period_seconds);
+  next_valid_timestamp = UInt256(u_next_valid_timestamp);
+
+  return (block.timestamp >= next_valid_timestamp);  // NOT POSSIBLE YET
+endfunction
+
+// given the subscription details, generate a hash and try to kind of follow
+// the eip-191 standard and eip-1077 standard
+@query
+function getSubscriptionHash(
+    from: Address, //the subscriber
+    to: Address, //the publisher
+    token_address: Address, //the token address paid to the publisher
+    token_amount: UInt256, //the token amount paid to the publisher
+    period_seconds: UInt256, //the period in seconds between payments
+    gas_token: Address, //the address of the token to pay relayer (0 for eth)
+    gas_price: UInt256, //the amount of tokens or eth to pay relayer (0 for free)
+    gas_payer: Address //the address that will pay the tokens to the relayer
+) : String
+  return keccak256(
+        abi.encodePacked(
+            byte("0x19"),
+            byte(0),
+            address(this),
+            from,
+            to,
+            tokenAddress,
+            tokenAmount,
+            periodSeconds,
+            gasToken,
+            gasPrice,
+            gasPayer
+  ));  // NOT IMPLEMENTED YET
+endfunction
+
+// https://github.com/protofire/zeppelin-solidity/blob/master/contracts/ECRecovery.sol
+// //ecrecover the signer from hash and the signature
+// function getSubscriptionSigner(
+//     bytes32 subscriptionHash, //hash of subscription
+//     bytes signature //proof the subscriber signed the meta trasaction
+// )
+//     public
+//     pure
+//     returns (address)
+// {
+//     return subscriptionHash.toEthSignedMessageHash().recover(signature);
+// }
+
+// check if a subscription is signed correctly and the timestamp is ready for
+// the next execution to happen
+@query
+function isSubscriptionReady(
+    from: Address, //the subscriber
+    to: Address, //the publisher
+    tokenAddress: Address, //the token address paid to the publisher
+    tokenAmount: UInt256, //the token amount paid to the publisher
+    periodSeconds: UInt256, //the period in seconds between payments
+    gas_token: Address, //the address of the token to pay relayer (0 for eth)
+    gas_price: UInt256, //the amount of tokens or eth to pay relayer (0 for free)
+    gas_payer: Address, //the address that will pay the tokens to the relayer
+    signature: String //proof the subscriber signed the meta trasaction
+) : Bool
+  var subscription_hash : String = getSubscriptionHash(
+    from, to, token_address, token_amount, period_seconds, gas_token, gas_price, gas_payer
+  );
+  var signer : Address = getSubscriptionSigner(subscription_hash, signature);
+  var allowance = ERC20(token_address).allowance(from, Address(this));  // NOT IMPLEMENTED YET
+  var next_valid_timestamp_state = ShardedState< UInt256 >("next_valid_timestamp");
+  var next_valid_timestamp = next_valid_timestamp_state.get(subscription_hash, UInt256(0u64));
+  return(
+    signer == from &&
+    block.timestamp >= next_valid_timestamp &&
+    allowance >= token_amount
+  );
+endfunction
+
+// you don't really need this if you are using the approve/transferFrom method
+// because you control the flow of tokens by approving this contract address,
+// but to make the contract an extensible example for later user I'll add this
+@action
+function cancelSubscription(
+    from: Address, //the subscriber
+    to: Address, //the publisher
+    tokenAddress: Address, //the token address paid to the publisher
+    tokenAmount: UInt256, //the token amount paid to the publisher
+    periodSeconds: UInt256, //the period in seconds between payments
+    gas_token: Address, //the address of the token to pay relayer (0 for eth)
+    gas_price: UInt256, //the amount of tokens or eth to pay relayer (0 for free)
+    gas_payer: Address, //the address that will pay the tokens to the relayer
+    signature: String //proof the subscriber signed the meta trasaction
+) : Bool
+  var subscription_hash : String = getSubscriptionHash(
+    from, to, tokenAddress, tokenAmount, periodSeconds, gasToken, gasPrice, gasPayer
+  );
+  var signer : Address = subscription_hash.toEthSignedMessageHash().recover(signature);  // NOT POSSIBLE YET
+
+  //the signature must be valid
+  if(signer != from)
+    panic("Invalid signature for subscription cancellation.");
+  endif
+
+  //since we can't underflow (SAFEMATH!), we'll just set it to a large number
+  var next_valid_timestamp_state = ShardedState< UInt256 >("next_valid_timestamp");
+  next_valid_timestamp_state.set(subscription_hash, 99999999999); //subscription will become valid again in year 5138
+  //at this point the nextValidTimestamp should be a timestamp that will never
+  //be reached during the brief window human existence
+
+  return true;
+endfunction
+
+// execute the transferFrom to pay the publisher from the subscriber
+// the subscriber has full control by approving this contract an allowance
+function executeSubscription(
+    caller: Address, // the contract caller
+    from: Address, //the subscriber
+    to: Address, //the publisher
+    tokenAddress: Address, //the token address paid to the publisher
+    tokenAmount: UInt256, //the token amount paid to the publisher
+    periodSeconds: UInt256, //the period in seconds between payments
+    gas_token: Address, //the address of the token to pay relayer (0 for eth)
+    gas_price: UInt256, //the amount of tokens or eth to pay relayer (0 for free)
+    gas_payer: Address, //the address that will pay the tokens to the relayer
+    signature: String //proof the subscriber signed the meta trasaction
+) : Bool
+  var subscription_hash : String = getSubscriptionHash(
+    from, to, tokenAddress, tokenAmount, periodSeconds, gasToken, gasPrice, gasPayer
+  );
+  // make sure the subscription is valid and ready
+  // pulled this out so I have the hash, should be exact code as "isSubscriptionReady"
+  var signer : Address = subscription_hash.toEthSignedMessageHash().recover(signature);  // NOT POSSIBLE YET
+
+  //the signature must be valid
+  if(signer != from)
+    panic("Invalid signature for subscription execution.");
+  endif
+
+  //timestamp must be equal to or past the next period
+  var next_valid_timestamp_state = ShardedState< UInt256 >("next_valid_timestamp");
+  next_valid_timestamp = next_valid_timestamp_state.get(subscription_hash, UInt256(0u64));
+  if(block.timestamp >= next_valid_timestamp)  // NOT POSSIBLE YET
+    panic("Subscription is not ready.");
+  endif
+
+  // This means desktop miners MUST submit transactions as fast as possible
+  // or subscriptions will start to lag
+  // the upside of doing it this way is the approve/allowance of the erc20
+  // can now pause and restart the subscription whenever they want
+
+  // TODO: Polyfilling due to missing UInt256 functionality
+  var u_next_valid_timestamp = toUInt64(next_valid_timestamp);  
+  u_next_valid_timestamp += toUInt64(block.timestamp + periodSeconds);  // NOT POSSIBLE YET
+  next_valid_timestamp = UInt256(u_next_valid_timestamp);
+  next_valid_timestamp_state.set(subscription_hash, next_valid_timestamp);
+
+  // now, let make the transfer from the subscriber to the publisher
+  var result : Bool = ERC20(token_address).transferFrom(Address(this), from, to, token_amount);
+
+  // it is possible for the subscription execution to be run by a third party
+  // incentivized in the terms of the subscription with a gas_token and gas_price
+  // pay that out now...
+  if(gas_price > 0)
+    var owner_state = State< Address >("owner");
+    var owner : Address = owner_state.get();
+    var publisher_signed_state = ShardedState< Bool >("publisher_signed");
+    var publisher_signed = publisher_signed_state.set(subscription_hash, Bool);
+    if (gas_token == Address(0))
+      // this is an interesting case where the service will pay the third party
+      // ethereum out of the subscription contract itself
+      // for this to work the publisher must send ethereum to the contract
+      if(!(from == owner || publisher_signed))
+        panic("Publisher has not signed this subscription_hash.");
+      endif
+
+      if(!(msg.sender.call.value(gasPrice).gas(36000)())) //still unsure about how much gas to use here  // NOT POSSIBLE YET
+        panic("Subscription contract failed to pay ether to relayer");
+      endif
+    else if (gas_payer == Address(this) || gas_payer == Address(0))
+      // in this case, this contract will pay a token to the relayer to
+      // incentivize them to pay the gas for the meta transaction
+      // for security, the publisher must have signed the subscriptionHash
+      if(!(from == owner || publisher_signed))
+        panic("Publisher has not signed this subscriptionHash");
+      endif
+        
+      if(!ERC20(gasToken).transfer(Address(this), caller, gas_price))  // NOT POSSIBLE YET
+        panic("Failed to pay gas as contract.");
+      endif
+    else if (gasPayer == from)
+      // in this case the relayer is paid with a token from the subscriber
+      // this works best if it is the same token being transferred to the
+      // publisher because it is already in the allowance
+      if(!ERC20(gas_token).transferFrom(Address(this), from, caller, gas_price))  // NOT POSSIBLE YET
+        panic("Failed to pay gas as from account.");
+      endif
+    else
+      // the subscriber could craft the gasPayer to be a fellow subscriber that
+      // that has approved this contract to move tokens and then exploit that
+      // don't allow that...
+      revert("The gas_payer is invalid.");  // NOT POSSIBLE YET
+      // on the other hand it might be really cool to allow *any* account to
+      // pay the third party as long as they have approved this contract
+      // AND the publisher has signed off on it. The downside would be a
+      // publisher not paying attention and signs a subscription that attacks
+      // a different subscriber
+    endif
+  endif
+
+  return result;
+endfunction
