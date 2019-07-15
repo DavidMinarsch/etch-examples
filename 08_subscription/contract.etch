@@ -72,7 +72,7 @@ function renounceOwnership(caller: Address)
   if(caller != owner)
     panic("Caller is not the owner.");
   endif
-  owner_state.set(address(0));  // NOT POSSIBLE YET
+  owner_state.set(Address(0));  // NOT POSSIBLE YET
 endfunction
 
 /**
@@ -86,7 +86,7 @@ function transferOwnership(caller: Address, new_owner: Address)
   if(caller != owner)
     panic("Caller is not the owner.");
   endif
-  if(new_owner == address(0))  // NOT POSSIBLE YET
+  if(new_owner == Address(0))  // NOT POSSIBLE YET
     panic("New owner is the zero address.");
   endif
   owner_state.set(new_owner);
@@ -97,7 +97,7 @@ endfunction
 // a specific subscription to start rewarding the relayers for paying the
 // gas of the transactions out of the balance of this contract
 @action
-function signSubscriptionHash(subscription_hash: String) : Bool
+function signSubscriptionHash(caller: Address, subscription_hash: String) : Bool
   var owner_state = State< Address >("owner");
   var owner : Address = owner_state.get();
   if(caller != owner)
@@ -238,6 +238,7 @@ endfunction
 
 // execute the transferFrom to pay the publisher from the subscriber
 // the subscriber has full control by approving this contract an allowance
+
 function executeSubscription(
     caller: Address, // the contract caller
     from: Address, //the subscriber
@@ -264,7 +265,7 @@ function executeSubscription(
 
   //timestamp must be equal to or past the next period
   var next_valid_timestamp_state = ShardedState< UInt256 >("next_valid_timestamp");
-  next_valid_timestamp = next_valid_timestamp_state.get(subscription_hash, UInt256(0u64));
+  var next_valid_timestamp : UInt256 = next_valid_timestamp_state.get(subscription_hash, UInt256(0u64));
   if(block.timestamp >= next_valid_timestamp)  // NOT POSSIBLE YET
     panic("Subscription is not ready.");
   endif
@@ -275,7 +276,7 @@ function executeSubscription(
   // can now pause and restart the subscription whenever they want
 
   // TODO: Polyfilling due to missing UInt256 functionality
-  var u_next_valid_timestamp = toUInt64(next_valid_timestamp);  
+  var u_next_valid_timestamp : UInt64 = toUInt64(next_valid_timestamp);  
   u_next_valid_timestamp += toUInt64(block.timestamp + periodSeconds);  // NOT POSSIBLE YET
   next_valid_timestamp = UInt256(u_next_valid_timestamp);
   next_valid_timestamp_state.set(subscription_hash, next_valid_timestamp);
@@ -286,7 +287,7 @@ function executeSubscription(
   // it is possible for the subscription execution to be run by a third party
   // incentivized in the terms of the subscription with a gas_token and gas_price
   // pay that out now...
-  if(gas_price > 0)
+  if(gas_price > 0u64)
     var owner_state = State< Address >("owner");
     var owner : Address = owner_state.get();
     var publisher_signed_state = ShardedState< Bool >("publisher_signed");
@@ -302,7 +303,7 @@ function executeSubscription(
       if(!(msg.sender.call.value(gasPrice).gas(36000)())) //still unsure about how much gas to use here  // NOT POSSIBLE YET
         panic("Subscription contract failed to pay ether to relayer");
       endif
-    else if (gas_payer == Address(this) || gas_payer == Address(0))
+    elseif (gas_payer == Address(this) || gas_payer == Address(0))
       // in this case, this contract will pay a token to the relayer to
       // incentivize them to pay the gas for the meta transaction
       // for security, the publisher must have signed the subscriptionHash
@@ -313,7 +314,7 @@ function executeSubscription(
       if(!ERC20(gasToken).transfer(Address(this), caller, gas_price))  // NOT POSSIBLE YET
         panic("Failed to pay gas as contract.");
       endif
-    else if (gasPayer == from)
+    elseif (gasPayer == from)
       // in this case the relayer is paid with a token from the subscriber
       // this works best if it is the same token being transferred to the
       // publisher because it is already in the allowance
