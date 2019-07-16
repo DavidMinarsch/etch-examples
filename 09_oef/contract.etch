@@ -111,9 +111,9 @@ endfunction
 
 @action
 /**
-* @dev Claim the allowance.
+* @dev Claim (some of) the allowance.
 */
-function claimAllowance(caller: Address, agent: Address, allowance: UInt256) : Bool
+function claimAllowance(caller: Address, agent: Address, claim: UInt256) : Bool
    // Check the transaction was signed.
   if(!caller.signedTx())
     return false;
@@ -122,14 +122,14 @@ function claimAllowance(caller: Address, agent: Address, allowance: UInt256) : B
   // Check the caller has an allowance with this agent at least as high as the claim.
   var oef_allowances_state = ShardedState< UInt256 >(caller);
   var oef_allowance = oef_allowances_state.get(agent, UInt256(0u64));
-  if(allowance > oef_allowance)
+  if(claim > oef_allowance)
   	return false;
   endif
 
   // Check the agent has enough stake.
   var agent_stakes_state = ShardedState< UInt256 >("agent_stakes");
   var agent_stake : UInt256 = agent_stakes_state.get(caller, UInt256(0u64));
-  if(allowance > agent_stake)
+  if(claim > agent_stake)
   	return false;
   endif
 
@@ -137,13 +137,13 @@ function claimAllowance(caller: Address, agent: Address, allowance: UInt256) : B
 
   // TODO: Polyfilling due to missing UInt256 functionality
   var u_oef_allowance = toUInt64(oef_allowance);  
-  u_oef_allowance -= toUInt64(allowance);
+  u_oef_allowance -= toUInt64(claim);
   oef_allowance = UInt256(u_oef_allowance);
   oef_allowances_state.set(agent, oef_allowance);
 
   // TODO: Polyfilling due to missing UInt256 functionality
   var u_agent_stake = toUInt64(agent_stake);  
-  u_agent_stake -= toUInt64(allowance);
+  u_agent_stake -= toUInt64(claim);
   agent_stake = UInt256(u_agent_stake);
   agent_stakes_state.set(agent, agent_stake);
 
@@ -153,7 +153,7 @@ function claimAllowance(caller: Address, agent: Address, allowance: UInt256) : B
 
   // TODO: Polyfilling due to missing UInt256 functionality
   var u_oef_stake = toUInt64(oef_stake);  
-  u_oef_stake += toUInt64(allowance);
+  u_oef_stake += toUInt64(claim);
   oef_stake = UInt256(u_oef_stake);
   oef_stakes_state.set(caller, oef_stake);
 
@@ -188,9 +188,9 @@ endfunction
 
 @query
 /**
-* @dev Get the disputes for an oef
+* @dev Get the disputes count for an oef
 */
-function getDisputes(oef: Address) : UInt256
+function getDisputesCount(oef: Address) : UInt256
   var oef_dispute_counts_state = ShardedState< UInt256 >("oef_dispute_counts");
   var oef_dispute_count = oef_dispute_counts_state.get(oef, UInt256(0u64));
   return oef_dispute_count;
