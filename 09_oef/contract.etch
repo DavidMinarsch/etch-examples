@@ -1,0 +1,232 @@
+//------------------------------------------------------------------------------
+//
+//   Copyright 2019 Fetch.AI Limited
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//       http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+//------------------------------------------------------------------------------
+//
+// This contract require release 0.4.0 or above
+// Note that this is experimental functionality
+function main()
+  // TBD
+endfunction
+
+@init
+function create()
+endfunction
+
+@payable  // NOT YET POSSIBLE
+@action
+/**
+ * @dev Let the caller (an agent) deposit stake.
+ */
+function deposit(caller: Address) : Bool
+  if(!caller.signedTx())
+    return false;
+  endif
+  var agent_stakes_state = ShardedState< UInt256 >("agent_stakes");
+  var agent_stake : UInt256 = agent_stakes_state.get(caller, UInt256(0u64));
+
+  // TODO: Polyfilling due to missing UInt256 functionality
+  var u_agent_stake : UInt64 = toUInt64(agent_stake);  
+  u_agent_stake += toUInt64(msg.value);  // NOT YET POSSIBLE
+  agent_stake = UInt256(u_agent_stake);
+
+  agent_stakes_state.set(caller, agent_stake);
+  return true;
+endfunction
+
+@action
+/**
+ * @dev Let the caller (an agent) withdraw stake.
+ */
+function withdrawAsAgent(caller: Address, to: Address) : Bool
+  if(!caller.signedTx())
+    return false;
+  endif
+  var agent_stakes_state = ShardedState< UInt256 >("agent_stakes");
+  var agent_stake : UInt256 = agent_stakes_state.get(caller, UInt256(0u64));
+
+  var zeroed_agent_stake : UInt256 = UInt256(0u64);
+
+  agent_stakes_state.set(caller, zeroed_agent_stake);
+
+  send(to, agent_stake);  // NOT YET POSSIBLE
+  return true;
+endfunction
+
+@action
+/**
+ * @dev Let the caller (an OEF) withdraw stake.
+ */
+function withdrawAsOEF(caller: Address, to: Address) : Bool
+  if(!caller.signedTx())
+    return false;
+  endif
+  var oef_stakes_state = ShardedState< UInt256 >("oef_stakes");
+  var oef_stake : UInt256 = oef_stakes_state.get(caller, UInt256(0u64));
+
+  var zeroed_oef_stake = UInt256(0u64);
+
+  oef_stakes_state.set(caller, zeroed_oef_stake);
+
+  send(to, oef_stake);  // NOT YET POSSIBLE
+  return true;
+endfunction
+
+@action
+/**
+ * @dev Set the allowance.
+ */
+function setAllowance(caller: Address, oef: Address, allowance: UInt256) : Bool
+  // Check the transaction was signed.
+  if(!caller.signedTx())
+    return false;
+  endif
+
+  // Check the allowance does not exceed the stake.
+  var agent_stakes_state = ShardedState< UInt256 >("agent_stakes");
+  var agent_stake : UInt256 = agent_stakes_state.get(caller, UInt256(0u64));
+  if(allowance > agent_stake)
+    return false;
+  endif
+
+  // Update allowance
+  var oef_allowances_state = ShardedState< UInt256 >(oef);
+  oef_allowances_state.set(caller, allowance);
+
+  return true;
+endfunction
+
+@action
+/**
+* @dev Claim the allowance.
+*/
+function claimAllowance(caller: Address, agent: Address, allowance: UInt256) : Bool
+   // Check the transaction was signed.
+  if(!caller.signedTx())
+    return false;
+  endif
+
+  // Check the caller has an allowance with this agent at least as high as the claim.
+  var oef_allowances_state = ShardedState< UInt256 >(caller);
+  var oef_allowance = oef_allowances_state.get(agent, UInt256(0u64));
+  if(allowance > oef_allowance)
+  	return false;
+  endif
+
+  // Check the agent has enough stake.
+  var agent_stakes_state = ShardedState< UInt256 >("agent_stakes");
+  var agent_stake : UInt256 = agent_stakes_state.get(caller, UInt256(0u64));
+  if(allowance > agent_stake)
+  	return false;
+  endif
+
+  // Update allowance and stakes
+
+  // TODO: Polyfilling due to missing UInt256 functionality
+  var u_oef_allowance = toUInt64(oef_allowance);  
+  u_oef_allowance -= toUInt64(allowance);
+  oef_allowance = UInt256(u_oef_allowance);
+  oef_allowances_state.set(agent, oef_allowance);
+
+  // TODO: Polyfilling due to missing UInt256 functionality
+  var u_agent_stake = toUInt64(agent_stake);  
+  u_agent_stake -= toUInt64(allowance);
+  agent_stake = UInt256(u_agent_stake);
+  agent_stakes_state.set(agent, agent_stake);
+
+  // Add allowance to oef stake
+  var oef_stakes_state = ShardedState< UInt256 >("oef_stakes");
+  var oef_stake : UInt256 = oef_stakes_state.get(caller, UInt256(0u64));
+
+  // TODO: Polyfilling due to missing UInt256 functionality
+  var u_oef_stake = toUInt64(oef_stake);  
+  u_oef_stake += toUInt64(allowance);
+  oef_stake = UInt256(u_oef_stake);
+  oef_stakes_state.set(caller, oef_stake);
+
+  // Update oef stake counts
+  var oef_stakes_count_state = ShardedState< UInt256 >("oef_stakes_count");
+  var oef_stake_count : UInt256 = oef_stakes_count_state.get(caller, UInt256(0u64));
+
+  // TODO: Polyfilling due to missing UInt256 functionality
+  var u_oef_stake_count = toUInt64(oef_stake_count);  
+  u_oef_stake_count += 1u64;
+  oef_stake_count = UInt256(u_oef_stake_count);
+  oef_stakes_count_state.set(caller, oef_stake_count);
+
+  // Allow agent to dispute oef
+  var agent_can_dispute_oef_state = ShardedState< Bool >(agent);
+  var agent_can_dispute_oef : Bool = agent_can_dispute_oef_state.get(caller, false);
+
+  agent_can_dispute_oef_state.set(caller, true);
+
+  return true;
+endfunction
+
+@query
+/**
+* @dev Get the stake count for an oef
+*/
+function getStakeCount(oef: Address) : UInt256
+  var oef_stakes_count_state = ShardedState< UInt256 >("oef_stakes_count");
+  var oef_stake_count = oef_stakes_count_state.get(oef, UInt256(0u64));
+  return oef_stake_count;
+endfunction
+
+@query
+/**
+* @dev Get the disputes for an oef
+*/
+function getDisputes(oef: Address) : UInt256
+  var oef_dispute_counts_state = ShardedState< UInt256 >("oef_dispute_counts");
+  var oef_dispute_count = oef_dispute_counts_state.get(oef, UInt256(0u64));
+  return oef_dispute_count;
+endfunction
+
+@action
+/**
+* @dev Dispute an oef if you have transacted with it before.
+* @dev The agent can only dispute once after an oef claimed its allowance.
+*/
+function dispute(caller: Address, oef: Address) : Bool
+  // Check the transaction was signed.
+  if(!caller.signedTx())
+    return false;
+  endif
+
+  // Check the agent is allowed to dispute.
+  var agent_can_dispute_oef_state = ShardedState< Bool >(caller);
+  var agent_can_dispute_oef = agent_can_dispute_oef_state.get(oef, false);
+
+  if(!agent_can_dispute_oef)
+    return false;
+  endif
+
+  // Update, so agent can only dispute once.
+  agent_can_dispute_oef_state.set(oef, false);
+
+  // Update dispute counts
+  var oef_dispute_counts_state = ShardedState< UInt256 >("oef_dispute_counts");
+  var oef_dispute_count : UInt256 = oef_dispute_counts_state.get(oef, UInt256(0u64));
+
+  // TODO: Polyfilling due to missing UInt256 functionality
+  var u_oef_dispute_count = toUInt64(oef_dispute_count);  
+  u_oef_dispute_count += 1u64;
+  oef_dispute_count = UInt256(u_oef_dispute_count);
+  oef_dispute_counts_state.set(oef, oef_dispute_count); 
+
+  return true;
+endfunction

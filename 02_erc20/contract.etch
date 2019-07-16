@@ -20,11 +20,23 @@
 // Note that this is experimental functionality
 function main()
   var u_supply = 12619924713u64;
-  var u_transfer = 977256u64;
-  var supply = UInt256(  u_supply );
+  var supply = UInt256(u_supply);
+  var u_transfer_one = 977256u64;
+  var transfer_one = UInt256(u_transfer_one);
+  var u_transfer_two = 956u64;
+  var transfer_two = UInt256(u_transfer_two);
+  var u_transfer_three = 1u64;
+  var transfer_three = UInt256(u_transfer_three);
+  var u_zero = 0u64;
+  var zero = UInt256(u_zero);
+
   var owner = Address("2ifr5dSFRAnXexBMC3HYEVp3JHSuz7KBPXWDRBV4xdFrqGy6R9");
+  var counter_party_one = Address("MnrRHdvCkdZodEwM855vemS5V3p2hiWmcSQ8JEzD4ZjPdsYtB");
+  var counter_party_two = Address("9JzN42wqGH3JPRpDvmFehkWtjHjEvz4MhchERzi2knWqf54RB");
+
   createSupplyImpl(owner, supply);
 
+  //totalSupply
   if(totalSupply() != supply)
     panic("Total supply is not what it is expected to be.");
   endif
@@ -32,27 +44,74 @@ function main()
   print("Total supply: ");
   printLn(toUInt64(totalSupply()));
 
+  //balanceOf
   if(balanceOf(owner) != supply)
     panic("Owner does not own all the tokens: " + toString(toUInt64(balanceOf(owner))));
   endif
 
-  print("Owner funds: ");
+  print("Owner funds start: ");
   printLn(toUInt64(balanceOf(owner)));
 
-  var counter_party = Address("MnrRHdvCkdZodEwM855vemS5V3p2hiWmcSQ8JEzD4ZjPdsYtB");
-  var success = transfer(owner, counter_party, UInt256(u_transfer));
-  if(!success)
+  if(balanceOf(counter_party_one) != zero)
+    panic("Counter party (one) has some tokens when it shouldn't: " + toString(toUInt64(balanceOf(counter_party_one))));
+  endif
+
+  // transfer
+  var is_transfer_success = transfer(owner, counter_party_one, transfer_one);
+  if(!is_transfer_success)
     panic("Transfer was not successful.");
   endif
 
-  if(balanceOf(owner) != UInt256(u_supply - u_transfer))
+  if(balanceOf(owner) != UInt256(u_supply - u_transfer_one))
     panic("Owner balance incorrect: " + toString(toUInt64(balanceOf(owner))));
   endif
 
-  if(balanceOf(counter_party) != UInt256(u_transfer))
-    panic("Counter party balance incorrect: " + toString(toUInt64(balanceOf(counter_party))) );
+  if(balanceOf(counter_party_one) != UInt256(u_transfer_one))
+    panic("Counter party (one) balance incorrect: " + toString(toUInt64(balanceOf(counter_party_one))));
   endif
 
+  // approve
+  var is_approve_success = approve(owner, counter_party_two, transfer_two);
+  if(!is_approve_success)
+    panic("Approve was not successful.");
+  endif
+
+  // allowance
+  if(allowance(owner, counter_party_two) != transfer_two)
+    panic("Allowance balance incorrect: " + toString(toUInt64(allowance(owner, counter_party_two))));
+  endif
+
+  // transferFrom
+  var is_transferFrom_success = transferFrom(counter_party_two, owner, counter_party_one, transfer_two);
+
+  if(!is_transferFrom_success)
+    panic("TransferFrom was not successful when it should have been.");
+  endif
+
+  if(balanceOf(owner) != UInt256(u_supply - u_transfer_one - u_transfer_two))
+    panic("Owner balance incorrect: " + toString(toUInt64(balanceOf(owner))));
+  endif
+
+  if(balanceOf(counter_party_one) != UInt256(u_transfer_one + u_transfer_two))
+    panic("Counter party (one) balance incorrect: " + toString(toUInt64(balanceOf(counter_party_one))) );
+  endif
+
+  var is_transferFrom_no_success = transferFrom(counter_party_two, owner, counter_party_one, transfer_three);
+
+  if(is_transferFrom_no_success)
+    panic("TransferFrom was successful when it should not have been.");
+  endif
+
+  if(balanceOf(owner) != UInt256(u_supply - u_transfer_one - u_transfer_two))
+    panic("Owner balance incorrect: " + toString(toUInt64(balanceOf(owner))));
+  endif
+
+  if(balanceOf(counter_party_one) != UInt256(u_transfer_one + u_transfer_two))
+    panic("Counter party (one) balance incorrect: " + toString(toUInt64(balanceOf(counter_party_one))) );
+  endif
+
+  print("Owner funds end: ");
+  printLn(toUInt64(balanceOf(owner)));
 endfunction
 
 @init
@@ -65,7 +124,7 @@ function createSupplyImpl(owner: Address, supply: UInt256)
   supply_state.set(supply);
 
   var balance_state = State< UInt256 >(owner);
-  balance_state.set( supply );
+  balance_state.set(supply);
 endfunction
 
 // totalSupply() public view returns (uint256 totalSupply) [Get the total token supply]
@@ -84,27 +143,57 @@ function balanceOf(owner: Address) : UInt256
     return UInt256(0u64);
   endif
 
-  return balance_state.get();
+  return balance_state.get(UInt256(0u64));
 endfunction
 
 // transfer(address _to, uint256 _value) public returns (bool success) [Send _value amount of tokens to address _to]
-// transferFrom(address _from, address _to, uint256 _value) public returns (bool success)[Send _value amount of tokens from address _from to address _to]
-// Not that the Fetch ledger does not have an implicit from address. Hence, we need a 
-// different function signature
+// Note that the Fetch ledger does not have an implicit sender address. Hence, we need a different function signature
 @action
-function transfer(from: Address, to: Address, value: UInt256) : Bool
-  if(!from.signedTx())
+function transfer(sender: Address, to: Address, value: UInt256) : Bool
+  if(!sender.signedTx())
     return false;
   endif
 
+  var from = sender;
+  return _transfer(from, to, value);
+endfunction
+
+// transferFrom(address _from, address _to, uint256 _value) public returns (bool success)[Send _value amount of tokens from address _from to address _to]
+// Note that the Fetch ledger does not have an implicit sender address. Hence, we need a different function signature
+@action
+function transferFrom(sender: Address, from: Address, to: Address, value: UInt256) : Bool
+  if(!sender.signedTx())
+    return false;
+  endif
+
+  var allowance_state = ShardedState< UInt256 >(from); // note how easy it is for a developer to introduce an error where they accidentaly overwrite state!
+  var allowed_value = allowance_state.get(sender, UInt256(0u64));
+
+  if(value > allowed_value)
+    return false;
+  endif
+  var is_success = _transfer(from, to, value); // not quite save!
+  if(is_success)
+    // TODO: Polyfilling due to missing UInt256 functionality
+    var u_allowed_value = toUInt64(allowed_value);
+    var u_value = toUInt64(value);
+    u_allowed_value -= u_value;
+    allowed_value = UInt256(u_allowed_value);
+
+    allowance_state.set(sender, allowed_value);
+  endif
+  return is_success;
+endfunction
+
+function _transfer(from: Address, to: Address, value: UInt256) : Bool
   var from_state = State< UInt256 >(from);
-  var from_balance = from_state.get( UInt256(0u64) );
+  var from_balance = from_state.get(UInt256(0u64));
   if(from_balance < value)
     return false;
   endif
 
   var to_state = State< UInt256 >(to);
-  var to_balance = to_state.get( UInt256(0u64) );
+  var to_balance = to_state.get(UInt256(0u64));
 
   // TODO: Polyfilling due to missing UInt256 functionality
   var u_from = toUInt64(from_balance);  
@@ -120,24 +209,22 @@ function transfer(from: Address, to: Address, value: UInt256) : Bool
   return true;
 endfunction
 
-
 // approve(address _spender, uint256 _value) public returns (bool success) [Allow _spender to withdraw from your account, multiple times, up to the _value amount. If this function is called again it overwrites the current allowance with _value]
+// Note that the Fetch ledger does not have an implicit sender address. Hence, we need a different function signature
 @action
-function approve(owner: Address, spender: Address, value: UInt256) : Bool
-  var state = ShardedState< UInt256 >(spender);
-  state.set(owner, value);
+function approve(sender: Address, spender: Address, value: UInt256) : Bool
+  if(!sender.signedTx())
+    return false;
+  endif
+
+  var allowance_state = ShardedState< UInt256 >(sender);
+  allowance_state.set(spender, value);
   return true;
 endfunction
 
 // allowance(address _owner, address _spender) public view returns (uint256 remaining) [Returns the amount which _spender is still allowed to withdraw from _owner]
 @query
 function allowance(owner: Address, spender: Address) : UInt256
-  var state = ShardedState< UInt256 >(spender);
-  return state.get(owner, UInt256(0u64));
-endfunction
-
-@action
-function spendAllowance(owner: Address, spender: Address, to: Address, value: UInt256) : Bool
-  // TODO: Implement.
-  return true;
+  var allowance_state = ShardedState< UInt256 >(owner);
+  return allowance_state.get(spender, UInt256(0u64));
 endfunction
